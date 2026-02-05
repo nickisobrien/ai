@@ -44,7 +44,12 @@ import {
   createNullLanguageModelUsage,
   LanguageModelUsage,
 } from '../types/usage';
-import { DeepPartial, isDeepEqualData, parsePartialJson } from '../util';
+import {
+  DeepPartial,
+  isDeepEqualData,
+  parsePartialJson,
+  parsePartialToon,
+} from '../util';
 import {
   AsyncIterableStream,
   createAsyncIterableStream,
@@ -53,8 +58,12 @@ import { createStitchableStream } from '../util/create-stitchable-stream';
 import { DownloadFunction } from '../util/download/download-function';
 import { now as originalNow } from '../util/now';
 import { prepareRetries } from '../util/prepare-retries';
+import { injectToonInstructionIntoMessages } from './inject-toon-instruction';
 import { getOutputStrategy, OutputStrategy } from './output-strategy';
-import { parseAndValidateObjectResultWithRepair } from './parse-and-validate-object-result';
+import {
+  ObjectFormat,
+  parseAndValidateObjectResultWithRepair,
+} from './parse-and-validate-object-result';
 import { RepairTextFunction } from './repair-text';
 import { ObjectStreamPart, StreamObjectResult } from './stream-object-result';
 import { validateObjectGenerationInput } from './validate-object-generation-input';
@@ -222,6 +231,16 @@ export function streamObject<
       model: LanguageModel;
 
       /**
+       * The output format to use for structured data generation.
+       *
+       * - 'json': Standard JSON output (default)
+       * - 'toon': TOON (Token-Oriented Object Notation) - more token-efficient format
+       *
+       * @default 'json'
+       */
+      format?: ObjectFormat;
+
+      /**
        * A function that attempts to repair the raw output of the model
        * to enable JSON parsing.
        */
@@ -284,6 +303,7 @@ export function streamObject<
   const {
     model,
     output = 'object',
+    format = 'json',
     system,
     prompt,
     messages,
@@ -331,6 +351,7 @@ export function streamObject<
 
   return new DefaultStreamObjectResult({
     model,
+    format,
     telemetry,
     headers,
     settings,
@@ -378,6 +399,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
 
   constructor({
     model: modelArg,
+    format,
     headers,
     telemetry,
     settings,
@@ -399,6 +421,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
     now,
   }: {
     model: LanguageModel;
+    format: ObjectFormat;
     telemetry: TelemetrySettings | undefined;
     headers: Record<string, string | undefined> | undefined;
     settings: Omit<CallSettings, 'abortSignal' | 'headers'>;
@@ -488,19 +511,37 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
           messages,
         } as Prompt);
 
+        const jsonSchema = await outputStrategy.jsonSchema();
+
+        let promptMessages = await convertToLanguageModelPrompt({
+          prompt: standardizedPrompt,
+          supportedUrls: await model.supportedUrls,
+          download,
+        });
+
+        // Inject TOON instructions into the system prompt when using TOON format
+        if (format === 'toon') {
+          promptMessages = injectToonInstructionIntoMessages({
+            messages: promptMessages,
+            schema: jsonSchema,
+          });
+        }
+
+        // Determine response format based on format option
+        const responseFormat =
+          format === 'toon'
+            ? ({ type: 'text' } as const) // Use text mode for TOON, we handle parsing
+            : ({
+                type: 'json',
+                schema: jsonSchema,
+                name: schemaName,
+                description: schemaDescription,
+              } as const);
+
         const callOptions = {
-          responseFormat: {
-            type: 'json' as const,
-            schema: await outputStrategy.jsonSchema(),
-            name: schemaName,
-            description: schemaDescription,
-          },
+          responseFormat,
           ...prepareCallSettings(settings),
-          prompt: await convertToLanguageModelPrompt({
-            prompt: standardizedPrompt,
-            supportedUrls: await model.supportedUrls,
-            download,
-          }),
+          prompt: promptMessages,
           providerOptions,
           abortSignal,
           headers,
@@ -633,8 +674,11 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
                   accumulatedText += chunk;
                   textDelta += chunk;
 
+                  // Use appropriate parser based on format
                   const { value: currentObjectJson, state: parseState } =
-                    await parsePartialJson(accumulatedText);
+                    format === 'toon'
+                      ? await parsePartialToon(accumulatedText)
+                      : await parsePartialJson(accumulatedText);
 
                   if (
                     currentObjectJson !== undefined &&
@@ -730,6 +774,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM>
                         accumulatedText,
                         outputStrategy,
                         repairText,
+                        format,
                         {
                           response: fullResponse,
                           usage,

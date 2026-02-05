@@ -1188,4 +1188,154 @@ describe('generateObject', () => {
       `);
     });
   });
+
+  describe('format = "toon"', () => {
+    it('should generate object with TOON format', async () => {
+      const toonResponse = `content
+  "Hello, world!"`;
+      const model = new MockLanguageModelV3({
+        doGenerate: {
+          ...dummyResponseValues,
+          content: [{ type: 'text', text: toonResponse }],
+        },
+      });
+
+      const result = await generateObject({
+        model,
+        schema: z.object({ content: z.string() }),
+        format: 'toon',
+        prompt: 'prompt',
+      });
+
+      expect(result.object).toEqual({ content: 'Hello, world!' });
+    });
+
+    it('should use text response format when format is toon', async () => {
+      const toonResponse = `content
+  "Hello, world!"`;
+      let capturedResponseFormat: unknown;
+
+      const model = new MockLanguageModelV3({
+        doGenerate: async ({ responseFormat }) => {
+          capturedResponseFormat = responseFormat;
+          return {
+            ...dummyResponseValues,
+            content: [{ type: 'text', text: toonResponse }],
+          };
+        },
+      });
+
+      await generateObject({
+        model,
+        schema: z.object({ content: z.string() }),
+        format: 'toon',
+        prompt: 'prompt',
+      });
+
+      expect(capturedResponseFormat).toEqual({ type: 'text' });
+    });
+
+    it('should inject TOON instructions into system prompt', async () => {
+      const toonResponse = `content
+  "Hello, world!"`;
+      let capturedPrompt: unknown;
+
+      const model = new MockLanguageModelV3({
+        doGenerate: async ({ prompt }) => {
+          capturedPrompt = prompt;
+          return {
+            ...dummyResponseValues,
+            content: [{ type: 'text', text: toonResponse }],
+          };
+        },
+      });
+
+      await generateObject({
+        model,
+        schema: z.object({ content: z.string() }),
+        format: 'toon',
+        prompt: 'Generate content',
+      });
+
+      const systemMessage = (capturedPrompt as any[])[0];
+      expect(systemMessage.role).toBe('system');
+      expect(systemMessage.content).toContain('Data format: TOON');
+      expect(systemMessage.content).toContain('Expected structure:');
+    });
+
+    it('should parse TOON with nested objects', async () => {
+      const toonResponse = `user
+  name
+    "Alice"
+  age
+    30`;
+      const model = new MockLanguageModelV3({
+        doGenerate: {
+          ...dummyResponseValues,
+          content: [{ type: 'text', text: toonResponse }],
+        },
+      });
+
+      const result = await generateObject({
+        model,
+        schema: z.object({
+          user: z.object({
+            name: z.string(),
+            age: z.number(),
+          }),
+        }),
+        format: 'toon',
+        prompt: 'Generate user',
+      });
+
+      expect(result.object).toEqual({
+        user: { name: 'Alice', age: 30 },
+      });
+    });
+
+    it('should parse TOON with arrays', async () => {
+      const toonResponse = `items[2]:
+  "apple"
+  "banana"`;
+      const model = new MockLanguageModelV3({
+        doGenerate: {
+          ...dummyResponseValues,
+          content: [{ type: 'text', text: toonResponse }],
+        },
+      });
+
+      const result = await generateObject({
+        model,
+        schema: z.object({
+          items: z.array(z.string()),
+        }),
+        format: 'toon',
+        prompt: 'Generate items',
+      });
+
+      expect(result.object).toEqual({ items: ['apple', 'banana'] });
+    });
+
+    it('should default to json format', async () => {
+      let capturedResponseFormat: unknown;
+
+      const model = new MockLanguageModelV3({
+        doGenerate: async ({ responseFormat }) => {
+          capturedResponseFormat = responseFormat;
+          return {
+            ...dummyResponseValues,
+            content: [{ type: 'text', text: '{ "content": "Hello" }' }],
+          };
+        },
+      });
+
+      await generateObject({
+        model,
+        schema: z.object({ content: z.string() }),
+        prompt: 'prompt',
+      });
+
+      expect((capturedResponseFormat as any).type).toBe('json');
+    });
+  });
 });

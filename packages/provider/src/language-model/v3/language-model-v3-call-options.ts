@@ -82,6 +82,24 @@ export type LanguageModelV3CallOptions = {
          * Description of the output that should be generated. Used by some providers for additional LLM guidance.
          */
         description?: string;
+      }
+    | {
+        type: 'toon';
+
+        /**
+         * JSON schema that the generated TOON output should conform to.
+         */
+        schema?: JSONSchema7;
+
+        /**
+         * Name of output that should be generated. Used by some providers for additional LLM guidance.
+         */
+        name?: string;
+
+        /**
+         * Description of the output that should be generated. Used by some providers for additional LLM guidance.
+         */
+        description?: string;
       };
 
   /**

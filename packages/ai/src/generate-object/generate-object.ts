@@ -38,8 +38,12 @@ import { prepareHeaders } from '../util/prepare-headers';
 import { prepareRetries } from '../util/prepare-retries';
 import { VERSION } from '../version';
 import { GenerateObjectResult } from './generate-object-result';
+import { injectToonInstructionIntoMessages } from './inject-toon-instruction';
 import { getOutputStrategy } from './output-strategy';
-import { parseAndValidateObjectResultWithRepair } from './parse-and-validate-object-result';
+import {
+  ObjectFormat,
+  parseAndValidateObjectResultWithRepair,
+} from './parse-and-validate-object-result';
 import { RepairTextFunction } from './repair-text';
 import { validateObjectGenerationInput } from './validate-object-generation-input';
 
@@ -159,6 +163,17 @@ export async function generateObject<
        * The language model to use.
        */
       model: LanguageModel;
+
+      /**
+       * The output format to use for structured data generation.
+       *
+       * - 'json': Standard JSON output (default)
+       * - 'toon': TOON (Token-Oriented Object Notation) - more token-efficient format
+       *
+       * @default 'json'
+       */
+      format?: ObjectFormat;
+
       /**
        * A function that attempts to repair the raw output of the model
        * to enable JSON parsing.
@@ -197,6 +212,7 @@ export async function generateObject<
   const {
     model: modelArg,
     output = 'object',
+    format = 'json',
     system,
     prompt,
     messages,
@@ -300,11 +316,30 @@ export async function generateObject<
           messages,
         } as Prompt);
 
-        const promptMessages = await convertToLanguageModelPrompt({
+        let promptMessages = await convertToLanguageModelPrompt({
           prompt: standardizedPrompt,
           supportedUrls: await model.supportedUrls,
           download,
         });
+
+        // Inject TOON instructions into the system prompt when using TOON format
+        if (format === 'toon') {
+          promptMessages = injectToonInstructionIntoMessages({
+            messages: promptMessages,
+            schema: jsonSchema,
+          });
+        }
+
+        // Determine response format based on format option
+        const responseFormat =
+          format === 'toon'
+            ? ({ type: 'text' } as const) // Use text mode for TOON, we handle parsing
+            : ({
+                type: 'json',
+                schema: jsonSchema,
+                name: schemaName,
+                description: schemaDescription,
+              } as const);
 
         const generateResult = await retry(() =>
           recordSpan({
@@ -336,12 +371,7 @@ export async function generateObject<
             tracer,
             fn: async span => {
               const result = await model.doGenerate({
-                responseFormat: {
-                  type: 'json',
-                  schema: jsonSchema,
-                  name: schemaName,
-                  description: schemaDescription,
-                },
+                responseFormat,
                 ...prepareCallSettings(settings),
                 prompt: promptMessages,
                 providerOptions,
@@ -432,6 +462,7 @@ export async function generateObject<
           result,
           outputStrategy,
           repairText,
+          format,
           {
             response,
             usage,
