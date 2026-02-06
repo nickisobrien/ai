@@ -1191,8 +1191,7 @@ describe('generateObject', () => {
 
   describe('format = "toon"', () => {
     it('should generate object with TOON format', async () => {
-      const toonResponse = `content
-  "Hello, world!"`;
+      const toonResponse = 'content: Hello, world!';
       const model = new MockLanguageModelV3({
         doGenerate: {
           ...dummyResponseValues,
@@ -1211,8 +1210,7 @@ describe('generateObject', () => {
     });
 
     it('should use text response format when format is toon', async () => {
-      const toonResponse = `content
-  "Hello, world!"`;
+      const toonResponse = 'content: Hello, world!';
       let capturedResponseFormat: unknown;
 
       const model = new MockLanguageModelV3({
@@ -1236,8 +1234,7 @@ describe('generateObject', () => {
     });
 
     it('should inject TOON instructions into system prompt', async () => {
-      const toonResponse = `content
-  "Hello, world!"`;
+      const toonResponse = 'content: Hello, world!';
       let capturedPrompt: unknown;
 
       const model = new MockLanguageModelV3({
@@ -1264,11 +1261,9 @@ describe('generateObject', () => {
     });
 
     it('should parse TOON with nested objects', async () => {
-      const toonResponse = `user
-  name
-    "Alice"
-  age
-    30`;
+      const toonResponse = `user:
+  name: Alice
+  age: 30`;
       const model = new MockLanguageModelV3({
         doGenerate: {
           ...dummyResponseValues,
@@ -1294,9 +1289,7 @@ describe('generateObject', () => {
     });
 
     it('should parse TOON with arrays', async () => {
-      const toonResponse = `items[2]:
-  "apple"
-  "banana"`;
+      const toonResponse = 'items[2]: apple,banana';
       const model = new MockLanguageModelV3({
         doGenerate: {
           ...dummyResponseValues,

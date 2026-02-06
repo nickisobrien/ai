@@ -1,9 +1,9 @@
-import { encode } from '@toon-format/toon';
-import { JSONSchema7 } from 'json-schema';
 import {
+  JSONSchema7,
   LanguageModelV3Message,
   LanguageModelV3Prompt,
 } from '@ai-sdk/provider';
+import { encodeToon } from '@ai-sdk/provider-utils';
 
 const DEFAULT_TOON_INSTRUCTIONS = `Data format: TOON (Token-Oriented Object Notation)
 - Uses 2-space indentation instead of braces/brackets
@@ -18,11 +18,9 @@ const DEFAULT_TOON_SUFFIX =
  * Generates an example value from a JSON schema for TOON demonstration.
  */
 function generateExampleFromSchema(schema: JSONSchema7): unknown {
-  if (schema === true) {
-    return {};
-  }
-  if (schema === false) {
-    return undefined;
+  // JSONSchema7 can be a boolean (true = any, false = nothing)
+  if (typeof schema === 'boolean') {
+    return schema ? {} : undefined;
   }
 
   // Handle references - we'll just return a placeholder
@@ -123,7 +121,7 @@ export function injectToonInstruction({
   schema?: JSONSchema7;
 }): string {
   const exampleToon = schema
-    ? encode(generateExampleFromSchema(schema))
+    ? encodeToon(generateExampleFromSchema(schema))
     : undefined;
 
   return [
